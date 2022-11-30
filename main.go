@@ -41,7 +41,6 @@ func main() {
 
 // parseFlags reads in user options.
 func parseFlags() Config {
-	// filename to save (default to metrics.jsonl in current dir)
 	url := flag.String("url", "http://localhost:8428", "VM url")
 	user := flag.String("user", "", "VM user to authenticate")
 	password := flag.String("password", "", "VM user password to authenticate")
@@ -50,10 +49,10 @@ func parseFlags() Config {
 	removeStart := flag.String("remove-start", "", "Start time of the points to remove from exported metrics")
 	removeEnd := flag.String("remove-end", time.Now().Format(time.RFC3339), "End time of the points to remove from exported metrics")
 	match := flag.String("match", "", "Metric expression to export from VM")
-	file := flag.String("file", "metrics.jsonl", "File path to export metrics to")
+	file := flag.String("file", "./metrics.jsonl", "File path to export metrics to")
 	flag.Parse()
 	parseTime := func(s *string) time.Time {
-		t, err := time.Parse(time.RFC3339, s)
+		t, err := time.Parse(time.RFC3339, *s)
 		if err != nil {
 			log.Fatal(err)
 		}
