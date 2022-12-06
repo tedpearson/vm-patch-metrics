@@ -3,12 +3,19 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"time"
+)
+
+var (
+	version   string = "development"
+	goVersion string = "unknown"
+	buildDate string = "unknown"
 )
 
 type Metric struct {
@@ -32,15 +39,20 @@ type Config struct {
 func main() {
 	config := parseFlags()
 	downloadMetrics(config)
-	removeBadPoints(config, 1668067200000, 1668585600000)
+	log.Println("Downloaded metrics")
+	removeBadPoints(config)
+	log.Println("Filtered points")
 	// drop metrics
 	dropMetrics(config)
+	log.Println("Dropped all matching metrics")
 	// reupload
 	uploadMetrics(config)
+	log.Println("Uploaded filtered points")
 }
 
 // parseFlags reads in user options.
 func parseFlags() Config {
+	versionFlag := flag.Bool("v", false, "Display version and exit")
 	url := flag.String("url", "http://localhost:8428", "VM url")
 	user := flag.String("user", "", "VM user to authenticate")
 	password := flag.String("password", "", "VM user password to authenticate")
@@ -51,6 +63,10 @@ func parseFlags() Config {
 	match := flag.String("match", "", "Metric expression to export from VM")
 	file := flag.String("file", "./metrics.jsonl", "File path to export metrics to")
 	flag.Parse()
+	if *versionFlag {
+		fmt.Printf("vm-patch-metrics %s built on %s with %s\n", version, buildDate, goVersion)
+		os.Exit(0)
+	}
 	parseTime := func(s *string) time.Time {
 		t, err := time.Parse(time.RFC3339, *s)
 		if err != nil {
@@ -91,6 +107,9 @@ func downloadMetrics(config Config) {
 	req.SetBasicAuth(config.user, config.password)
 	client := &http.Client{}
 	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
@@ -112,7 +131,7 @@ func downloadMetrics(config Config) {
 
 // removeBadPoints removes points from the metrics in the file whose timestamps
 // line up with the period requested to be removed.
-func removeBadPoints(config Config, badStart, badEnd int64) {
+func removeBadPoints(config Config) {
 	// remove bad data points
 	nf, err := os.Create("update.jsonl")
 	if err != nil {
@@ -124,10 +143,7 @@ func removeBadPoints(config Config, badStart, badEnd int64) {
 	}
 	d := json.NewDecoder(r)
 	enc := json.NewEncoder(nf)
-	var i = 1
 	for {
-		i += 1
-		println(i)
 		var metric Metric
 		err = d.Decode(&metric)
 		if err == io.EOF {
@@ -140,7 +156,7 @@ func removeBadPoints(config Config, badStart, badEnd int64) {
 		var firstBad int = l
 		var lastBad = firstBad
 		for i, v := range metric.Timestamps {
-			if v > badStart && v < badEnd {
+			if v > config.removeStart.UnixMilli() && v < config.removeEnd.UnixMilli() {
 				lastBad = i + 1
 				if firstBad == l {
 					firstBad = i
@@ -156,11 +172,7 @@ func removeBadPoints(config Config, badStart, badEnd int64) {
 			log.Fatal(err)
 		}
 	}
-
-	if err := os.Rename("update.jsonl", config.file); err != nil {
-		log.Fatal(err)
-	}
-	if err := os.Remove("update.jsonl"); err != nil {
+	if err = nf.Close(); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -181,14 +193,14 @@ func dropMetrics(config Config) {
 	req.SetBasicAuth(config.user, config.password)
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != 204 {
 		log.Fatal(err)
 	}
 }
 
 // uploadMetrics uploads the changed file of metrics to VM
 func uploadMetrics(config Config) {
-	r, err := os.Open(config.file)
+	r, err := os.Open("update.jsonl")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -202,7 +214,7 @@ func uploadMetrics(config Config) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != 204 {
 		log.Fatalf("Error: status code was not 200, %v", resp)
 	}
 }

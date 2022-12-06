@@ -10,6 +10,8 @@ What it does:
 3. **Deletes** the matching metrics from VictoriaMetrics. (For all time!)
 4. Imports the metrics without the removed dates back into VictoriaMetrics.
 
+This is a quick project and I won't guarantee you won't lose data in the process. You've been warned!
+
 ## Usage:
 
     Usage of vm-replace-metrics:
